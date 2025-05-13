@@ -38,30 +38,45 @@ A web-based tool for analyzing medical documents to identify adverse events, rel
   - CSS3 (Bootstrap 5.3.2)
   - JavaScript (ES6+)
   - Bootstrap Icons
-  - Marked.js for markdown rendering
+
+- **APIs:**
+  - Gemini API for text extraction and summarization
+  - OpenAI API for PubMed search term generation
+  - PubMed E-utilities for article retrieval
 
 - **Features:**
-  - PDF text extraction
-  - Medical entity recognition
-  - PubMed integration
-  - Intelligent summarization
+  - PDF text extraction and base64 encoding
+  - Medical entity recognition using LLMs
+  - Smart PubMed search term generation
+  - XML parsing for PubMed articles
+  - Intelligent adverse event analysis
+  - Real-time processing with status indicators
 
 ## Getting Started
 
 1. Clone the repository
-2. Open `index.html` in a modern web browser
-3. Upload a medical document (PDF format)
-4. Wait for the analysis to complete
-5. Review the extracted information, related articles, and summary
+2. Configure your API keys:
+   - Set up Gemini API key
+   - Set up OpenAI API key
+3. Open `index.html` in a modern web browser
+4. Enter your API keys in the configuration panel
+5. Upload a medical document (PDF format)
+6. Wait for the three-step analysis to complete:
+   - Text extraction
+   - Article search
+   - Summary generation
+7. Review the extracted information, related articles, and adverse event analysis
 
 ## Project Structure
 
 ```
 adverse-events/
-├── index.html      # Main application page
-├── script.js       # Application logic
-├── data/          # Data files
-└── .vscode/       # Editor configuration
+├── index.html          # Main application page
+├── script.js           # Main application logic
+├── api-config.js       # API configuration and setup
+├── xml-helper.js       # XML parsing utilities  
+├── data/              # Data files
+   └── npi.docx       # NPI guidelines
 ```
 
 ## Browser Compatibility
@@ -85,6 +100,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
+- Google for Gemini API access
+- OpenAI for GPT API access
+- NCBI for PubMed E-utilities
 - Bootstrap team for the UI framework
-- PubMed for medical research access
-- Marked.js team for markdown parsing

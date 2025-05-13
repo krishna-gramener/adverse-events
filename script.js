@@ -1,5 +1,5 @@
-import { Marked } from "https://cdn.jsdelivr.net/npm/marked@13/+esm";
-
+import { openai_url, gemini_url, token, setupAPI} from './api-config.js';
+import {getXmlContent, getAuthors, getJournalInfo, getPublicationDate, getKeywords} from './xml-helper.js';
 // DOM elements
 const uploadArea = document.getElementById('upload-area');
 const fileInput = document.getElementById('file-input');
@@ -16,88 +16,13 @@ const errorAlert = document.getElementById('error-alert');
 const errorMessage = document.getElementById('error-message');
 const mainContent = document.getElementById('mainContent');
 const apiForm = document.getElementById('apiForm');
-
-const marked = new Marked();
-let token_url=""
-let openai_url=""
-let gemini_url=""
-let token=""
 const npi= await fetch('./data/npi.docx').then((r)=>r.text())
 
+setupAPI(apiForm, mainContent);
 // Store the currently uploaded file
 let currentFile = null;
 let extractedText = '';
 let articlesData = [];
-
-
-function checkStoredAPIs() {
-  const stored_token_url = localStorage.getItem('token_url');
-  const stored_openai_url = localStorage.getItem('openai_url');
-  const stored_gemini_url = localStorage.getItem('gemini_url');
-  
-  if (stored_token_url && stored_openai_url && stored_gemini_url) {
-      token_url = stored_token_url;
-      openai_url = stored_openai_url;
-      gemini_url = stored_gemini_url;
-      return true;
-  }
-  return false;
-}
-
-// Show API form
-function showAPIForm() {
-  apiForm.classList.remove('hidden');
-  mainContent.classList.add('hidden');
-}
-
-// Handle API form submission
-async function handleAPISubmit(event) {
-  event.preventDefault();
-  const tokenApiInput = document.getElementById('tokenApi');
-  const openaiApiInput = document.getElementById('openaiApi');
-  const geminiApiInput = document.getElementById('geminiApi');
-  
-  token_url = tokenApiInput.value;
-  openai_url = openaiApiInput.value;
-  gemini_url = geminiApiInput.value;
-  
-  // Store in localStorage
-  localStorage.setItem('token_url', token_url);
-  localStorage.setItem('openai_url', openai_url);
-  localStorage.setItem('gemini_url', gemini_url);
-  
-  // Hide form and show main content
-  apiForm.classList.add('hidden');
-  mainContent.classList.remove('hidden');
-  
-  // Initialize the app
-  await init();
-}
-
-async function init() {
-  try {
-      if (!checkStoredAPIs()) {
-          showAPIForm();
-          return;
-      }
-      
-      const response = await fetch(token_url, { credentials: "include" });
-      const data = await response.json();
-      token = data.token;
-      
-      // Show main content if we have the token
-      mainContent.classList.remove('hidden');
-      apiForm.classList.add('hidden');
-  } catch (error) {
-      showError("Failed to initialize: " + error.message);
-  }
-}
-
-// Add form submit listener
-apiForm.addEventListener('submit', handleAPISubmit);
-
-init();
-
 
 // Handle file selection
 selectFileBtn.addEventListener('click', () => {
@@ -213,97 +138,37 @@ async function getBase64FromPdf(file) {
 async function extractTextUsingGemini(file) {
   try {
     const base64String = await getBase64FromPdf(file);
-    const response = await fetch(
-      gemini_url,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          system_instruction: {
-            parts: [
-              {
-                text: `You are a clinical extraction assistant. Extract information from the provided pdf document and return it in the following JSON format:
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "symptoms": {
-      "type": "array",
-      "items": {
-        "type": "string"
+    const requestBody = {
+      system_instruction: {
+        parts: [{
+          text: `You are a clinical extraction assistant. Extract information from the provided pdf document and return it in the following JSON format:\n\`\`\`json\n{\n  "type": "object",\n  "properties": {\n    "symptoms": {\n      "type": "array",\n      "items": {\n        "type": "string"\n      },\n      "minItems": 1\n    },\n    "diseases_or_medications": {\n      "type": "array",\n      "items": {\n        "type": "string"\n      },\n      "minItems": 1\n    },\n    "subjective_assessments": {\n      "type": "array",\n      "items": {\n        "type": "string"\n      },\n      "minItems": 1\n    },\n    "drug_used": {\n      "type": "array",\n      "items": {\n        "type": "string"\n      },\n      "minItems": 1\n    }\n  },\n  "required": ["symptoms", "diseases_or_medications", "subjective_assessments", "drug_used"]\n}\n\`\`\`\nEnsure the response is valid JSON. Extract all relevant information from the pdf document and categorize it appropriately.`
+        }]
       },
-      "minItems": 1
-    },
-    "diseases_or_medications": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "minItems": 1
-    },
-    "subjective_assessments": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "minItems": 1
-    },
-    "drug_used": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "minItems": 1
-    }
-  },
-  "required": ["symptoms", "diseases_or_medications", "subjective_assessments", "drug_used"]
-}
-\`\`\`
-Ensure the response is valid JSON. Extract all relevant information from the pdf document and categorize it appropriately.`,
-              },
-            ],
-          },
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { text: "This is a PDF document" }, 
-                {
-                  inline_data: {
-                    mime_type: "application/pdf",
-                    data: base64String, // Base64 content excluding the prefix
-                  },
-                },
-              ],
-            },
-          ],
-        }),
-      }
-    );
+      contents: [{
+        role: "user",
+        parts: [
+          { text: "This is a PDF document" },
+          { inline_data: { mime_type: "application/pdf", data: base64String }}
+        ]
+      }]
+    };
+
+    const response = await fetch(gemini_url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody)
+    });
 
     if (!response.ok) {
       const errorData = await response.json();
       throw new Error(errorData.error?.message || `Unexpected error: ${response.status}`);
     }
 
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
-    // Extract JSON content from within ```json ... ``` block
+    const text = (await response.json()).candidates?.[0]?.content?.parts?.[0]?.text;
     const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-    if (!jsonMatch) {
-      throw new Error('No JSON block found in response');
-    }
+    if (!jsonMatch) throw new Error('No JSON block found in response');
     
-    try {
-      const extractedJson = JSON.parse(jsonMatch[1]);
-      return extractedJson;
-    } catch (parseError) {
-      throw new Error(`Failed to parse JSON response: ${parseError.message}`);
-    }
+    return JSON.parse(jsonMatch[1]);
   } catch (error) {
     throw new Error(`Gemini API error: ${error.message}`);
   }
@@ -362,110 +227,43 @@ Ensure terms are properly connected with AND/OR operators and use + for spaces.`
 
 async function fetchArticles(pubmedApiUrl) {
   try {
-    // First fetch the article IDs from the search
-    const searchResponse = await fetch(pubmedApiUrl);
-    if (!searchResponse.ok) {
-      throw new Error(`PubMed search failed: ${searchResponse.statusText}`);
-    }
-    
-    const searchData = await searchResponse.json();
+    const searchData = await (await fetch(pubmedApiUrl)).json();
     const articleIds = searchData.esearchresult?.idlist || [];
-    
-    if (articleIds.length === 0) {
-      return [];
-    }
+    if (!articleIds.length) return [];
 
-    // Fetch and parse each article's XML data
-    const articles = [];
-  
-    for (const id of articleIds) {
-      const articleUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${id}&retmode=xml`;
-      let articleResponse='';
-      try{
-       articleResponse = await fetch(articleUrl);
-      }catch(error){
+    const articles = await Promise.all(articleIds.map(async (id) => {
+      try {
+        const articleUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${id}&retmode=xml`;
+        const xmlText = await (await fetch(articleUrl)).text();
+        const xmlDoc = new DOMParser().parseFromString(xmlText, 'text/xml');
+
+        return {
+          title: getXmlContent(xmlDoc, 'ArticleTitle') || 'Title not available',
+          abstract: getXmlContent(xmlDoc, 'Abstract') || 'Abstract not available',
+          authors: getAuthors(xmlDoc),
+          journal: getJournalInfo(xmlDoc),
+          publicationDate: getPublicationDate(xmlDoc),
+          keywords: getKeywords(xmlDoc),
+          url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`
+        };
+      } catch (error) {
         console.error(`Failed to fetch article ${id}: ${error.message}`);
-        continue;
+        return null;
       }
-      const xmlText = await articleResponse.text();
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+    }));
 
-      // Extract article information
-      const article = {
-        title: getXmlContent(xmlDoc, 'ArticleTitle') || 'Title not available',
-        abstract: getXmlContent(xmlDoc, 'Abstract') || 'Abstract not available',
-        authors: getAuthors(xmlDoc),
-        journal: getJournalInfo(xmlDoc),
-        publicationDate: getPublicationDate(xmlDoc),
-        keywords: getKeywords(xmlDoc),
-        url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`
-      };
-
-      articles.push(article);
-    }
-    return articles;
+    return articles.filter(Boolean);
   } catch (error) {
     throw new Error(`Failed to fetch articles: ${error.message}`);
   }
 }
 
-// Helper functions for XML parsing
-function getXmlContent(xmlDoc, tagName) {
-  return xmlDoc.getElementsByTagName(tagName)[0]?.textContent?.trim();
-}
-
-function getAuthors(xmlDoc) {
-  const authors = xmlDoc.getElementsByTagName('Author');
-  return Array.from(authors).map(author => {
-    const lastName = author.getElementsByTagName('LastName')[0]?.textContent || '';
-    const foreName = author.getElementsByTagName('ForeName')[0]?.textContent || '';
-    return `${lastName}${foreName ? ', ' + foreName : ''}`;
-  }).join('; ') || 'Authors not available';
-}
-
-function getJournalInfo(xmlDoc) {
-  const journal = xmlDoc.getElementsByTagName('Journal')[0];
-  if (!journal) return 'Journal information not available';
-  
-  const title = journal.getElementsByTagName('Title')[0]?.textContent;
-  return title || 'Journal title not available';
-}
-
-function getPublicationDate(xmlDoc) {
-  const pubDate = xmlDoc.getElementsByTagName('PubDate')[0];
-  if (!pubDate) return '';
-
-  const year = pubDate.getElementsByTagName('Year')[0]?.textContent || '';
-  const month = pubDate.getElementsByTagName('Month')[0]?.textContent || '';
-  return `${year}${month ? ' ' + month : ''}`;
-}
-
-function getKeywords(xmlDoc) {
-  const keywords = xmlDoc.getElementsByTagName('Keyword');
-  return Array.from(keywords)
-    .map(keyword => keyword.textContent.trim())
-    .filter(keyword => keyword)
-    .join(', ') || 'No keywords available';
-}
-
 async function generateSummary(patientData, articlesData) {
   try {
-    const response = await fetch(gemini_url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}:adverse-events` },
-      credentials: "include",
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{
-            text: `Based on the provided data :- 
-
-Patient Information: ${JSON.stringify(patientData, null, 2)}
-Research Articles: ${JSON.stringify(articlesData, null, 2)}
-NPI Guidelines: ${npi}
-
-For each symptom, generate details in the following format :
+    const requestBody = {
+      system_instruction: {
+        parts: [{
+          text: `Based on the provided data for each symptom, generate details in the following format :
 
 \`\`\`json
 {
@@ -486,30 +284,34 @@ For each symptom, generate details in the following format :
 }
 \`\`\`
 `
-          }]
         }]
-      }),
+      },
+      contents: [{
+        role: "user",
+        parts: [{
+          text: ` data :- 
+Patient Information: ${JSON.stringify(patientData, null, 2)}
+Research Articles: ${JSON.stringify(articlesData, null, 2)}
+NPI Guidelines: ${npi}
+`
+        }]
+      }]
+    };
+
+    const response = await fetch(gemini_url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}:adverse-events` },
+      credentials: "include",
+      body: JSON.stringify(requestBody)
     });
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
+    if (!response.ok) throw new Error(`API error: ${response.statusText}`);
 
-    const result = await response.json();
-    const responseText = result.candidates?.[0].content?.parts?.[0]?.text;
+    const text = (await response.json()).candidates?.[0].content?.parts?.[0]?.text;
+    const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
+    if (!jsonMatch?.[1]) throw new Error('No valid JSON found in the response');
     
-    // Extract JSON from code block if present
-    const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/);
-    if (jsonMatch && jsonMatch[1]) {
-      try {
-        const extractedJson = JSON.parse(jsonMatch[1]);
-        return extractedJson;
-      } catch (parseError) {
-        throw new Error(`Failed to parse JSON from response: ${parseError.message}`);
-      }
-    }
-    
-    throw new Error('No valid JSON found in the response');
+    return JSON.parse(jsonMatch[1]);
   } catch (error) {
     throw new Error(`Failed to generate summary: ${error.message}`);
   }
@@ -533,78 +335,38 @@ function updateStepStatus(step, status) {
 
 function displayEntities(data) {
   try {
-    // Parse the JSON string if it's not already an object
     const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-    
+
+    const createListItems = (items) => {
+      if (!items) return '';
+      const itemsArray = Array.isArray(items) ? items : [items];
+      return itemsArray.map(item => `
+        <div class="list-group-item border-0 px-0">
+          <i class="bi bi-dot me-2"></i>${item}
+        </div>
+      `).join('');
+    };
+
+    const createCard = (content, title, color, icon) => content ? `
+      <div class="${color === 'primary' ? 'col-12' : 'col-md-6'}">
+        <div class="card h-100 border-${color}">
+          <div class="card-header bg-${color} ${color === 'warning' ? 'text-dark' : 'text-white'}">
+            <h6 class="mb-0"><i class="bi bi-${icon} me-2"></i>${title}</h6>
+          </div>
+          <div class="card-body">
+            <div class="list-group list-group-flush">
+              ${createListItems(content)}
+            </div>
+          </div>
+        </div>
+      </div>
+    ` : '';
+
     const content = `
       <div class="row g-3">
-        ${parsedData.drug_used && parsedData.drug_used.length > 0 ? `
-          <div class="col-12">
-            <div class="card h-100 border-primary">
-              <div class="card-header bg-primary text-white">
-                <h6 class="mb-0"><i class="bi bi-capsule me-2"></i>Drugs Used</h6>
-              </div>
-              <div class="card-body">
-                <div class="list-group list-group-flush">
-                  ${Array.isArray(parsedData.drug_used) ? 
-                    parsedData.drug_used.map(drug => `
-                      <div class="list-group-item border-0 px-0">
-                        <i class="bi bi-dot me-2"></i>${drug}
-                      </div>
-                    `).join('') : ''}
-                </div>
-              </div>
-            </div>
-          </div>
-        ` : ''}
-
-        ${parsedData.symptoms ? `
-          <div class="col-md-6">
-            <div class="card h-100 border-danger">
-              <div class="card-header bg-danger text-white">
-                <h6 class="mb-0"><i class="bi bi-activity me-2"></i>Symptoms</h6>
-              </div>
-              <div class="card-body">
-                <div class="list-group list-group-flush">
-                  ${Array.isArray(parsedData.symptoms) ? 
-                    parsedData.symptoms.map(symptom => `
-                      <div class="list-group-item border-0 px-0">
-                        <i class="bi bi-dot me-2"></i>${symptom}
-                      </div>
-                    `).join('') : 
-                    `<div class="list-group-item border-0 px-0">
-                      <i class="bi bi-dot me-2"></i>${parsedData.symptoms}
-                    </div>`
-                  }
-                </div>
-              </div>
-            </div>
-          </div>
-        ` : ''}
-
-        ${parsedData.diseases_or_medications ? `
-          <div class="col-md-6">
-            <div class="card h-100 border-warning">
-              <div class="card-header bg-warning text-dark">
-                <h6 class="mb-0"><i class="bi bi-clipboard2-pulse me-2"></i>Diseases</h6>
-              </div>
-              <div class="card-body">
-                <div class="list-group list-group-flush">
-                  ${Array.isArray(parsedData.diseases_or_medications) ? 
-                    parsedData.diseases_or_medications.map(item => `
-                      <div class="list-group-item border-0 px-0">
-                        <i class="bi bi-dot me-2"></i>${item}
-                      </div>
-                    `).join('') : 
-                    `<div class="list-group-item border-0 px-0">
-                      <i class="bi bi-dot me-2"></i>${parsedData.diseases_or_medications}
-                    </div>`
-                  }
-                </div>
-              </div>
-            </div>
-          </div>
-        ` : ''}
+        ${createCard(parsedData.drug_used?.length && parsedData.drug_used, 'Drugs Used', 'primary', 'capsule')}
+        ${createCard(parsedData.symptoms, 'Symptoms', 'danger', 'activity')}
+        ${createCard(parsedData.diseases_or_medications, 'Diseases', 'warning', 'clipboard2-pulse')}
       </div>
     `;
     
@@ -674,7 +436,6 @@ function displaySummary(data) {
     </table>
   </div>
 `;
-
 summaryContent.innerHTML = tableHTML;
 }
 
