@@ -14,18 +14,90 @@ const articlesContent = document.getElementById('articles-content');
 const summaryContent = document.getElementById('summary-content');
 const errorAlert = document.getElementById('error-alert');
 const errorMessage = document.getElementById('error-message');
-const marked = new Marked();
-const token_url=""
-const openai_url=""
-const gemini_url=""
-const { token } = await fetch(token_url, { credentials: "include" }).then((r) => r.json());
+const mainContent = document.getElementById('mainContent');
+const apiForm = document.getElementById('apiForm');
 
+const marked = new Marked();
+let token_url=""
+let openai_url=""
+let gemini_url=""
+let token=""
 const npi= await fetch('./data/npi.docx').then((r)=>r.text())
 
 // Store the currently uploaded file
 let currentFile = null;
 let extractedText = '';
 let articlesData = [];
+
+
+function checkStoredAPIs() {
+  const stored_token_url = localStorage.getItem('token_url');
+  const stored_openai_url = localStorage.getItem('openai_url');
+  const stored_gemini_url = localStorage.getItem('gemini_url');
+  
+  if (stored_token_url && stored_openai_url && stored_gemini_url) {
+      token_url = stored_token_url;
+      openai_url = stored_openai_url;
+      gemini_url = stored_gemini_url;
+      return true;
+  }
+  return false;
+}
+
+// Show API form
+function showAPIForm() {
+  apiForm.classList.remove('hidden');
+  mainContent.classList.add('hidden');
+}
+
+// Handle API form submission
+async function handleAPISubmit(event) {
+  event.preventDefault();
+  const tokenApiInput = document.getElementById('tokenApi');
+  const openaiApiInput = document.getElementById('openaiApi');
+  const geminiApiInput = document.getElementById('geminiApi');
+  
+  token_url = tokenApiInput.value;
+  openai_url = openaiApiInput.value;
+  gemini_url = geminiApiInput.value;
+  
+  // Store in localStorage
+  localStorage.setItem('token_url', token_url);
+  localStorage.setItem('openai_url', openai_url);
+  localStorage.setItem('gemini_url', gemini_url);
+  
+  // Hide form and show main content
+  apiForm.classList.add('hidden');
+  mainContent.classList.remove('hidden');
+  
+  // Initialize the app
+  await init();
+}
+
+async function init() {
+  try {
+      if (!checkStoredAPIs()) {
+          showAPIForm();
+          return;
+      }
+      
+      const response = await fetch(token_url, { credentials: "include" });
+      const data = await response.json();
+      token = data.token;
+      
+      // Show main content if we have the token
+      mainContent.classList.remove('hidden');
+      apiForm.classList.add('hidden');
+  } catch (error) {
+      showError("Failed to initialize: " + error.message);
+  }
+}
+
+// Add form submit listener
+apiForm.addEventListener('submit', handleAPISubmit);
+
+init();
+
 
 // Handle file selection
 selectFileBtn.addEventListener('click', () => {
@@ -180,7 +252,11 @@ async function extractTextUsingGemini(file) {
       "minItems": 1
     },
     "drug_used": {
-      "type": "string"
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
     }
   },
   "required": ["symptoms", "diseases_or_medications", "subjective_assessments", "drug_used"]
@@ -381,33 +457,50 @@ async function generateSummary(patientData, articlesData) {
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}:adverse-events` },
       credentials: "include",
       body: JSON.stringify({
-        system_instruction: {
-          parts: [{
-            text: `You are a medical adverse event analyzer. Generate a comprehensive summary based on the provided information:
-1. Patient Data: Contains the patient's symptoms, conditions, and drug usage
-2. Research Articles: Relevant medical literature about similar cases and drug effects
-3. NPI Guidelines: Standard procedures and guidelines for adverse event reporting
-
-Your summary should:
-1. Analyze the patient's symptoms and their potential relationship with the drug
-2. Compare the case with similar documented cases from the research articles
-3. Evaluate if proper procedures were followed according to NPI guidelines
-4. Highlight any significant findings or concerns
-5. Suggest next steps if applicable
-
-Format the response as a structured report with clear sections.`
-          }]
-        },
         contents: [{
           role: "user",
-          parts: [{ 
-            text: JSON.stringify({
-              patientData: patientData,
-              researchArticles: articlesData,
-              npiGuidelines: npi
-            })
+          parts: [{
+            text: `Generate a comprehensive medical adverse event summary based on this data:
+
+Patient Information: ${JSON.stringify(patientData, null, 2)}
+Research Articles: ${JSON.stringify(articlesData, null, 2)}
+NPI Guidelines: ${npi}
+
+Provide a detailed analysis using these exact sections:
+
+# Patient Data Summary
+- Patient's current condition and medical history
+- Timeline of symptoms and their progression
+- Current medications and dosage details
+
+# Analysis of Symptoms and Drug Relationship
+- Detailed examination of each reported symptom
+- Potential causal relationships with medications
+- Severity assessment and impact on patient
+
+# Comparison with Documented Cases
+- Analysis of similar cases from research articles
+- Common patterns in adverse events
+- Statistical significance if available
+
+# Evaluation of NPI Guidelines Compliance
+- Assessment of current procedures followed
+- Areas of compliance with NPI guidelines
+- Identification of any procedural gaps
+
+# Key Findings and Concerns
+- Major findings from the analysis
+- Critical concerns identified
+- Risk assessment and severity level
+
+# Recommended Next Steps
+- Immediate actions required
+- Monitoring requirements
+- Follow-up procedures and timeline
+
+Format your response in markdown with proper headings (#) and bullet points (-).`
           }]
-        }],
+        }]
       }),
     });
 
@@ -445,14 +538,21 @@ function displayEntities(data) {
     
     const content = `
       <div class="row g-3">
-        ${parsedData.drug_used ? `
+        ${parsedData.drug_used && parsedData.drug_used.length > 0 ? `
           <div class="col-12">
             <div class="card h-100 border-primary">
               <div class="card-header bg-primary text-white">
-                <h6 class="mb-0"><i class="bi bi-capsule me-2"></i>Drug Used</h6>
+                <h6 class="mb-0"><i class="bi bi-capsule me-2"></i>Drugs Used</h6>
               </div>
               <div class="card-body">
-                <p class="card-text">${parsedData.drug_used}</p>
+                <div class="list-group list-group-flush">
+                  ${Array.isArray(parsedData.drug_used) ? 
+                    parsedData.drug_used.map(drug => `
+                      <div class="list-group-item border-0 px-0">
+                        <i class="bi bi-dot me-2"></i>${drug}
+                      </div>
+                    `).join('') : ''}
+                </div>
               </div>
             </div>
           </div>
