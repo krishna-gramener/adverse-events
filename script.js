@@ -300,7 +300,6 @@ Ensure the response is valid JSON. Extract all relevant information from the pdf
     
     try {
       const extractedJson = JSON.parse(jsonMatch[1]);
-      console.log(extractedJson)
       return extractedJson;
     } catch (parseError) {
       throw new Error(`Failed to parse JSON response: ${parseError.message}`);
@@ -330,7 +329,7 @@ async function generatePubmedLinks(extractedData) {
 
 Format your response as a JSON object with a single 'searchTerm' property containing the search string. Example format:
 {
-  "searchTerm": "(drugName1+OR+drugName2)+AND+(adverse+effects+OR+side+effects)+AND+(symptom1+OR+symptom2)+AND+(case+study+OR+case+reports)"
+  "searchTerm": "(drugName1+AND+drugName2)+AND+(adverse+effects+OR+side+effects)+OR+(symptom1+OR+symptom2)+OR+(case+study+OR+case+reports)"
 }
 
 Ensure terms are properly connected with AND/OR operators and use + for spaces.`
@@ -460,45 +459,33 @@ async function generateSummary(patientData, articlesData) {
         contents: [{
           role: "user",
           parts: [{
-            text: `Generate a comprehensive medical adverse event summary based on this data:
+            text: `Based on the provided data :- 
 
 Patient Information: ${JSON.stringify(patientData, null, 2)}
 Research Articles: ${JSON.stringify(articlesData, null, 2)}
 NPI Guidelines: ${npi}
 
-Provide a detailed analysis using these exact sections:
+For each symptom, generate details in the following format :
 
-# Patient Data Summary
-- Patient's current condition and medical history
-- Timeline of symptoms and their progression
-- Current medications and dosage details
-
-# Analysis of Symptoms and Drug Relationship
-- Detailed examination of each reported symptom
-- Potential causal relationships with medications
-- Severity assessment and impact on patient
-
-# Comparison with Documented Cases
-- Analysis of similar cases from research articles
-- Common patterns in adverse events
-- Statistical significance if available
-
-# Evaluation of NPI Guidelines Compliance
-- Assessment of current procedures followed
-- Areas of compliance with NPI guidelines
-- Identification of any procedural gaps
-
-# Key Findings and Concerns
-- Major findings from the analysis
-- Critical concerns identified
-- Risk assessment and severity level
-
-# Recommended Next Steps
-- Immediate actions required
-- Monitoring requirements
-- Follow-up procedures and timeline
-
-Format your response in markdown with proper headings (#) and bullet points (-).`
+\`\`\`json
+{
+  "type": "object",
+  "properties": {
+    "symptom_name": {
+      "type": "string"
+    },
+    "is_adverse_event": {
+      "type": "string",
+      "enum": ["yes", "no"]
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": ["symptom_name", "is_adverse_event", "reason"]
+}
+\`\`\`
+`
           }]
         }]
       }),
@@ -509,7 +496,20 @@ Format your response in markdown with proper headings (#) and bullet points (-).
     }
 
     const result = await response.json();
-    return result.candidates?.[0].content?.parts?.[0]?.text || "Failed to generate summary";
+    const responseText = result.candidates?.[0].content?.parts?.[0]?.text;
+    
+    // Extract JSON from code block if present
+    const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/);
+    if (jsonMatch && jsonMatch[1]) {
+      try {
+        const extractedJson = JSON.parse(jsonMatch[1]);
+        return extractedJson;
+      } catch (parseError) {
+        throw new Error(`Failed to parse JSON from response: ${parseError.message}`);
+      }
+    }
+    
+    throw new Error('No valid JSON found in the response');
   } catch (error) {
     throw new Error(`Failed to generate summary: ${error.message}`);
   }
@@ -647,8 +647,35 @@ function displayArticles(articles) {
   document.getElementById('related-articles-card').classList.remove('d-none');
 }
 
-function displaySummary(summary) {
-  summaryContent.innerHTML = marked.parse(summary);
+function displaySummary(data) {
+  const tableHTML = `
+  <div class="table-responsive">
+    <table class="table table-striped table-hover">
+      <thead class="table-primary">
+        <tr>
+          <th>Symptom</th>
+          <th>Adverse Event</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${data.map(item => `
+          <tr>
+            <td>${item.symptom_name}</td>
+            <td>
+              <span class="badge ${item.is_adverse_event === 'yes' ? 'bg-danger' : 'bg-success'}">
+                ${item.is_adverse_event}
+              </span>
+            </td>
+            <td>${item.reason}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>
+`;
+
+summaryContent.innerHTML = tableHTML;
 }
 
 function showFileInfo(file) {
