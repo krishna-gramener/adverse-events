@@ -195,7 +195,58 @@ async function extractTextUsingGemini(file) {
     const requestBody = {
       system_instruction: {
         parts: [{
-          text: `You are a clinical extraction assistant. Extract information from the provided pdf document and return it in the following JSON format:\n\`\`\`json\n{\n  "type": "object",\n  "properties": {\n    "symptoms": {\n      "type": "array",\n      "items": {\n        "type": "string"\n      },\n      "minItems": 1\n    },\n    "diseases_or_medications": {\n      "type": "array",\n      "items": {\n        "type": "string"\n      },\n      "minItems": 1\n    },\n    "subjective_assessments": {\n      "type": "array",\n      "items": {\n        "type": "string"\n      },\n      "minItems": 1\n    },\n    "drug_used": {\n      "type": "array",\n      "items": {\n        "type": "string"\n      },\n      "minItems": 1\n    }\n  },\n  "required": ["symptoms", "diseases_or_medications", "subjective_assessments", "drug_used"]\n}\n\`\`\`\nEnsure the response is valid JSON. Extract all relevant information from the pdf document and categorize it appropriately.`
+          text: `You are a clinical extraction assistant. Extract information from the provided pdf document and return it in the following JSON format:\n\`\`\`json\n{
+  "type": "object",
+  "properties": {
+    "symptoms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "disease": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "mesh_code": {
+            "type": "string"
+          }
+        },
+        "required": ["name", "mesh_code"]
+      },
+      "minItems": 1
+    },
+    "subjective_assessments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "drug_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "mesh_code": {
+            "type": "string"
+          }
+        },
+        "required": ["name", "mesh_code"]
+      },
+      "minItems": 1
+    }
+  },
+  "required": ["symptoms", "disease", "subjective_assessments", "drug_used"]
+}\n\`\`\`\n\nIMPORTANT INSTRUCTIONS:\n1. Ensure the response is valid JSON\n2. Do not use HTML entities (like &gt; &lt; &amp;) - use actual characters (>, <, &) instead\n3. For percentages, use the actual symbol (>) instead of HTML entities\n4. All text in reason fields should use regular characters, not HTML entities\n5. Extract all relevant information from the pdf document and categorize it appropriately\n6. Ensure all medical terms (disease names, drug names) are correctly spelled\n7. Provide MeSH codes where possible\n8. Make sure all JSON strings are properly escaped`
         }]
       },
       contents: [{
@@ -221,8 +272,8 @@ async function extractTextUsingGemini(file) {
     const text = (await response.json()).candidates?.[0]?.content?.parts?.[0]?.text;
     const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) throw new Error('No JSON block found in response');
-    
-    return JSON.parse(jsonMatch[1]);
+    const value=JSON.parse(jsonMatch[1]);
+    return value;
   } catch (error) {
     throw new Error(`Gemini API error: ${error.message}`);
   }
@@ -248,7 +299,7 @@ async function generatePubmedLinks(extractedData) {
 
 Format your response as a JSON object with a single 'searchTerm' property containing the search string. Example format:
 {
-  "searchTerm": "(drugName1+AND+drugName2)+AND+(adverse+effects+OR+side+effects)+OR+(symptom1+OR+symptom2)+OR+(case+study+OR+case+reports)"
+  "searchTerm": "(drugName1+AND+drugName2)+AND+(diseaseName1+OR+diseaseName2)+OR+(symptom1+OR+symptom2)"
 }
 
 Ensure terms are properly connected with AND/OR operators and use + for spaces.`
@@ -425,36 +476,48 @@ function displayEntities(data) {
   try {
     const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
 
-    const createListItems = (items) => {
-      if (!items) return '';
-      const itemsArray = Array.isArray(items) ? items : [items];
-      return itemsArray.map(item => `
-        <div class="list-group-item border-0 px-0">
-          <i class="bi bi-dot me-2"></i>${item}
-        </div>
-      `).join('');
+    const createListItems = (items, type = 'simple') => {
+      if (!items || !Array.isArray(items) || items.length === 0) return '';
+      
+      return items.map(item => {
+        if (type === 'mesh') {
+          return `
+            <div class="list-group-item border-0 px-0">
+              <div><i class="bi bi-dot me-2"></i>${item.name}</div>
+              <small class="text-muted ms-4">MeSH Code: ${item.mesh_code}</small>
+            </div>`;
+        }
+        return `
+          <div class="list-group-item border-0 px-0">
+            <i class="bi bi-dot me-2"></i>${item}
+          </div>`;
+      }).join('');
     };
 
-    const createCard = (content, title, color, icon) => content ? `
-      <div class="${color === 'primary' ? 'col-12' : 'col-md-6'}">
-        <div class="card h-100 border-${color}">
-          <div class="card-header bg-${color} ${color === 'warning' ? 'text-dark' : 'text-white'}">
-            <h6 class="mb-0"><i class="bi bi-${icon} me-2"></i>${title}</h6>
-          </div>
-          <div class="card-body">
-            <div class="list-group list-group-flush">
-              ${createListItems(content)}
+    const createCard = (content, title, color, icon, type = 'simple') => {
+      if (!content) return '';
+      return `
+        <div class="${color === 'primary' ? 'col-12' : 'col-md-6'}">
+          <div class="card h-100 border-${color}">
+            <div class="card-header bg-${color} ${color === 'warning' ? 'text-dark' : 'text-white'}">
+              <h6 class="mb-0"><i class="bi bi-${icon} me-2"></i>${title}</h6>
+            </div>
+            <div class="card-body">
+              <div class="list-group list-group-flush">
+                ${createListItems(content, type)}
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    ` : '';
+      `;
+    };
 
     const content = `
       <div class="row g-3">
-        ${createCard(parsedData.drug_used?.length && parsedData.drug_used, 'Drugs Used', 'primary', 'capsule')}
-        ${createCard(parsedData.symptoms, 'Symptoms', 'danger', 'activity')}
-        ${createCard(parsedData.diseases_or_medications, 'Diseases', 'warning', 'clipboard2-pulse')}
+        ${createCard(parsedData.drug_used, 'Drugs Used', 'primary', 'capsule', 'mesh')}
+        ${createCard(parsedData.symptoms, 'Symptoms', 'danger', 'activity', 'simple')}
+        ${createCard(parsedData.disease, 'Diseases', 'warning', 'clipboard2-pulse', 'mesh')}
+        
       </div>
     `;
     
