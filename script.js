@@ -16,11 +16,35 @@ const errorAlert = document.getElementById('error-alert');
 const errorMessage = document.getElementById('error-message');
 const mainContent = document.getElementById('mainContent');
 const apiForm = document.getElementById('apiForm');
+const pdfModal = document.getElementById('pdfViewerModal');
+const pdfIframe = document.getElementById('pdf-iframe');
+const viewPdfBtn = document.getElementById('view-pdf-btn');
+const modalFilename = document.getElementById('modal-filename');
+
+// Initialize Bootstrap modal
+const pdfViewerModal = new bootstrap.Modal(pdfModal);
+
+// Handle view PDF button click
+viewPdfBtn.addEventListener('click', () => {
+  if (!currentObjectUrl || !currentFile) {
+    return;
+  }
+  modalFilename.textContent = currentFile.name;
+  pdfIframe.src = currentObjectUrl;
+  pdfViewerModal.show();
+});
+
+// Clean up iframe src when modal is hidden
+pdfModal.addEventListener('hidden.bs.modal', () => {
+  pdfIframe.src = '';
+});
+
 const npi= await fetch('./data/npi.docx').then((r)=>r.text())
 
 setupAPI(apiForm, mainContent);
 // Store the currently uploaded file
 let currentFile = null;
+let currentObjectUrl = null;
 let extractedText = '';
 let articlesData = [];
 
@@ -70,11 +94,20 @@ async function handleFile(file) {
   showFileInfo(file);
   hideError();
 
+  // Create object URL for PDF and store it
+  currentObjectUrl = URL.createObjectURL(file);
+  viewPdfBtn.classList.add('d-none');
+
   try {
     await processPdf();
   } catch (error) {
     showError(`Error processing PDF: ${error.message}`);
     console.error(error);
+    // Clean up object URL on error
+    if (currentObjectUrl) {
+      URL.revokeObjectURL(currentObjectUrl);
+      currentObjectUrl = null;
+    }
   }
 }
 
@@ -87,30 +120,51 @@ async function processPdf() {
   summaryContent.innerHTML = '';
 
   // Show processing status
-  processingStatus.classList.remove('hidden');
-  resultsContainer.classList.add('hidden');
+  processingStatus.classList.remove('d-none');
+  resultsContainer.classList.add('d-none');
 
-  // Step 1: Extract text from PDF
-  updateStepStatus(1, 'progress');
+  // Reset all step statuses
+  for (let i = 1; i <= 5; i++) {
+    const icon = document.getElementById(`step${i}-icon`);
+    const spinner = document.getElementById(`step${i}-spinner`);
+    const check = document.getElementById(`step${i}-check`);
+    
+    icon.classList.remove('d-none');
+    spinner.classList.add('d-none');
+    check.classList.add('d-none');
+  }
+
   try {
+    // Step 1: Process document for text extraction
+    updateStepStatus(1, 'progress');
     extractedText = await extractTextUsingGemini(currentFile);
     updateStepStatus(1, 'complete');
-    displayEntities(extractedText);
-    // Step 2: Find related articles
+
+    // Step 2: Deconstruct text to identify drugs, diseases and other details
     updateStepStatus(2, 'progress');
+    const entities = await displayEntities(extractedText);
+    updateStepStatus(2, 'complete');
+
+    // Step 3: Identify related and known adverse events
+    updateStepStatus(3, 'progress');
     const pubmedLink = await generatePubmedLinks(extractedText);
     articlesData = await fetchArticles(pubmedLink);
-    updateStepStatus(2, 'complete');
+    updateStepStatus(3, 'complete');
     displayArticles(articlesData);
 
-    // Step 3: Generate summary
-    updateStepStatus(3, 'progress');
-    const summary = await generateSummary(extractedText, articlesData);
-    updateStepStatus(3, 'complete');
-    displaySummary(summary);
+    // Step 4: Identify related articles which indicate causality
+    updateStepStatus(4, 'progress');
+    const causalityAnalysis = await generateSummary(extractedText, articlesData);
+    updateStepStatus(4, 'complete');
 
-    // Show results
-    resultsContainer.classList.remove('hidden');
+    // Step 5: Synthesize and generate final summary
+    updateStepStatus(5, 'progress');
+    displaySummary(causalityAnalysis);
+    updateStepStatus(5, 'complete');
+
+    // Show results and enable PDF viewing
+    resultsContainer.classList.remove('d-none');
+    viewPdfBtn.classList.remove('d-none');
 
   } catch (error) {
     showError(`Processing failed: ${error.message}`);
@@ -213,11 +267,14 @@ Ensure terms are properly connected with AND/OR operators and use + for spaces.`
     const text = result.choices?.[0]?.message?.content;
     
     try {
-      const { searchTerm } = JSON.parse(text);
+      // Remove escaped quotes and normalize the JSON string
+      const cleanText = text.replace(/\\n/g, '').replace(/\\"([^"]+)\\"/g, '"$1"');
+      const { searchTerm } = JSON.parse(cleanText);
       const pubmedUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${searchTerm}&retmax=5&retmode=json`;
       console.log('Generated PubMed URL:', pubmedUrl);
       return pubmedUrl;
     } catch (parseError) {
+      console.error('Failed to parse text:', text);
       throw new Error(`Failed to parse JSON response: ${parseError.message}`);
     }
   } catch (error) {
@@ -225,19 +282,39 @@ Ensure terms are properly connected with AND/OR operators and use + for spaces.`
   }
 }
 
+// Helper function to add delay between requests
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function fetchArticles(pubmedApiUrl) {
   try {
-    const searchData = await (await fetch(pubmedApiUrl)).json();
+    const searchResponse = await fetch(pubmedApiUrl);
+    if (!searchResponse.ok) throw new Error(`PubMed API error: ${searchResponse.statusText}`);
+
+    const searchData = await searchResponse.json();
     const articleIds = searchData.esearchresult?.idlist || [];
     if (!articleIds.length) return [];
 
-    const articles = await Promise.all(articleIds.map(async (id) => {
+    const articles = [];
+    for (const id of articleIds) {
       try {
+        // Add a 1-second delay between requests
+        await delay(1000);
+
         const articleUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${id}&retmode=xml`;
-        const xmlText = await (await fetch(articleUrl)).text();
+        const articleResponse = await fetch(articleUrl);
+
+        if (articleResponse.status === 429) {
+          console.log('Rate limited, waiting 2 seconds...');
+          await delay(2000); // Wait longer if rate limited
+          continue; // Retry this article
+        }
+
+        if (!articleResponse.ok) throw new Error(`Article fetch error: ${articleResponse.statusText}`);
+
+        const xmlText = await articleResponse.text();
         const xmlDoc = new DOMParser().parseFromString(xmlText, 'text/xml');
 
-        return {
+        articles.push({
           title: getXmlContent(xmlDoc, 'ArticleTitle') || 'Title not available',
           abstract: getXmlContent(xmlDoc, 'Abstract') || 'Abstract not available',
           authors: getAuthors(xmlDoc),
@@ -245,14 +322,14 @@ async function fetchArticles(pubmedApiUrl) {
           publicationDate: getPublicationDate(xmlDoc),
           keywords: getKeywords(xmlDoc),
           url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`
-        };
+        });
       } catch (error) {
         console.error(`Failed to fetch article ${id}: ${error.message}`);
-        return null;
+        continue; // Skip this article and continue with the next one
       }
-    }));
+    }
 
-    return articles.filter(Boolean);
+    return articles;
   } catch (error) {
     throw new Error(`Failed to fetch articles: ${error.message}`);
   }
@@ -266,23 +343,19 @@ async function generateSummary(patientData, articlesData) {
           text: `Based on the provided data for each symptom, generate details in the following format :
 
 \`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "symptom_name": {
-      "type": "string"
-    },
-    "is_adverse_event": {
-      "type": "string",
-      "enum": ["yes", "no"]
-    },
-    "reason": {
-      "type": "string"
-    }
-  },
-  "required": ["symptom_name", "is_adverse_event", "reason"]
-}
+[
+  {
+    "symptom_name": "string",
+    "is_adverse_event": "yes|no",
+    "reason": "string with explanation"
+  }
+]
 \`\`\`
+
+Provide an array of objects, one for each symptom. For each symptom:
+- symptom_name: The name of the symptom
+- is_adverse_event: Either "yes" or "no"
+- reason: Detailed explanation with references to the provided data
 `
         }]
       },
@@ -311,25 +384,40 @@ NPI Guidelines: ${npi}
     const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
     if (!jsonMatch?.[1]) throw new Error('No valid JSON found in the response');
     
-    return JSON.parse(jsonMatch[1]);
+    const jsonStr = jsonMatch[1].trim();
+    const result = JSON.parse(jsonStr);
+    
+    if (!Array.isArray(result)) {
+      throw new Error('Expected array of symptom analysis');
+    }
+    
+    return result;
   } catch (error) {
     throw new Error(`Failed to generate summary: ${error.message}`);
   }
 }
 
 function updateStepStatus(step, status) {
-  const icon = document.getElementById(`step${step}-icon`);
-  const spinner = document.getElementById(`step${step}-spinner`);
-  const check = document.getElementById(`step${step}-check`);
+  const elements = ['icon', 'spinner', 'check'].reduce((acc, type) => {
+    acc[type] = document.getElementById(`step${step}-${type}`);
+    return acc;
+  }, {});
 
   if (status === 'progress') {
-    icon.classList.add('hidden');
-    spinner.classList.remove('hidden');
-    check.classList.add('hidden');
+    // Reset current and subsequent steps
+    for (let i = step; i <= 5; i++) {
+      ['icon', 'spinner', 'check'].forEach(type => {
+        const el = document.getElementById(`step${i}-${type}`);
+        el.classList.toggle('d-none', type !== 'icon');
+      });
+    }
+    // Update current step to show spinner
+    elements.icon.classList.add('d-none');
+    elements.spinner.classList.remove('d-none');
   } else if (status === 'complete') {
-    icon.classList.add('hidden');
-    spinner.classList.add('hidden');
-    check.classList.remove('hidden');
+    Object.entries(elements).forEach(([type, el]) => {
+      el.classList.toggle('d-none', type !== 'check');
+    });
   }
 }
 
@@ -441,31 +529,42 @@ summaryContent.innerHTML = tableHTML;
 
 function showFileInfo(file) {
   filename.textContent = file.name;
-  fileInfo.classList.remove('hidden');
-  uploadArea.classList.add('hidden');
+  fileInfo.classList.remove('d-none');
+  uploadArea.classList.add('d-none');
 }
 
 function showError(message) {
   errorMessage.textContent = message;
-  errorAlert.classList.remove('hidden');
+  errorAlert.classList.remove('d-none');
 }
 
 function hideError() {
-  errorAlert.classList.add('hidden');
+  errorAlert.classList.add('d-none');
 }
 
 function resetApp() {
+  // Clean up object URL
+  if (currentObjectUrl) {
+    URL.revokeObjectURL(currentObjectUrl);
+    currentObjectUrl = null;
+  }
+
   currentFile = null;
   extractedText = '';
   articlesData = [];
   
   fileInput.value = '';
   filename.textContent = '';
-  fileInfo.classList.add('hidden');
-  uploadArea.classList.remove('hidden');
-  processingStatus.classList.add('hidden');
-  resultsContainer.classList.add('hidden');
-  errorAlert.classList.add('hidden');
+  fileInfo.classList.add('d-none');
+  uploadArea.classList.remove('d-none');
+  processingStatus.classList.add('d-none');
+  resultsContainer.classList.add('d-none');
+  errorAlert.classList.add('d-none');
+  if (pdfViewerModal) {
+    pdfViewerModal.hide();
+  }
+  pdfIframe.src = '';
+  viewPdfBtn.classList.add('d-none');
   
   entitiesContent.innerHTML = '';
   articlesContent.innerHTML = '';
