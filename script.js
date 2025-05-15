@@ -201,7 +201,7 @@ async function extractTextUsingGemini(file) {
     const requestBody = {
       system_instruction: {
         parts: [{
-          text: `You are a clinical extraction assistant. Extract information from the provided pdf document and return it in the following JSON format:\n\`\`\`json\n{
+          text: `You are a clinical extraction assistant. Extract information from the provided pdf document. Correct the medical terms spelling if needed. Return it in the following JSON format:\n\`\`\`json\n{
   "type": "object",
   "properties": {
     "symptoms": {
@@ -243,7 +243,7 @@ async function extractTextUsingGemini(file) {
     }
   },
   "required": ["symptoms", "disease", "subjective_assessments", "drugs_used"]
-}\n\`\`\`\n\nIMPORTANT INSTRUCTIONS:\n1. Ensure the response is valid JSON\n2. Do not use HTML entities (like &gt; &lt; &amp;) - use actual characters (>, <, &) instead\n3. For percentages, use the actual symbol (>) instead of HTML entities\n4. All text in reason fields should use regular characters, not HTML entities\n5. Extract all relevant information from the pdf document and categorize it appropriately\n6. Ensure all medical terms (disease names, drug names) are correctly spelled\n7. Provide MeSH codes where possible\n8. Make sure all JSON strings are properly escaped`
+}\n\`\`\`\n\n`
         }]
       },
       contents: [{
