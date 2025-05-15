@@ -1,4 +1,4 @@
-import { openai_url, gemini_url, token, setupAPI} from './api-config.js';
+import { gemini_url, token, setupAPI} from './api-config.js';
 import {getXmlContent, getAuthors, getJournalInfo, getPublicationDate, getKeywords} from './xml-helper.js';
 // DOM elements
 const uploadArea = document.getElementById('upload-area');
@@ -15,12 +15,11 @@ const summaryContent = document.getElementById('summary-content');
 const errorAlert = document.getElementById('error-alert');
 const errorMessage = document.getElementById('error-message');
 const mainContent = document.getElementById('mainContent');
-const apiForm = document.getElementById('apiForm');
 const pdfModal = document.getElementById('pdfViewerModal');
 const pdfIframe = document.getElementById('pdf-iframe');
 const viewPdfBtn = document.getElementById('view-pdf-btn');
 const modalFilename = document.getElementById('modal-filename');
-
+const apiForm = document.getElementById('api-config-form');
 // Initialize Bootstrap modal
 const pdfViewerModal = new bootstrap.Modal(pdfModal);
 
@@ -39,13 +38,21 @@ pdfModal.addEventListener('hidden.bs.modal', () => {
   pdfIframe.src = '';
 });
 
-const npi= await fetch('./data/npi.docx').then((r)=>r.text())
+// Global variables
+let npi = '';
 
-setupAPI(apiForm, mainContent);
+// Initialize API setup after DOM is fully loaded
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        npi = await fetch('./data/npi.docx').then((r)=>r.text());
+        setupAPI(apiForm, mainContent);
+    } catch (error) {
+        showError(error.message);
+    }
+});
 // Store the currently uploaded file
 let currentFile = null;
 let currentObjectUrl = null;
-let extractedText = '';
 let articlesData = [];
 
 // Handle file selection
@@ -113,7 +120,6 @@ async function handleFile(file) {
 
 async function processPdf() {
   // Reset previous results
-  extractedText = '';
   articlesData = [];
   entitiesContent.innerHTML = '';
   articlesContent.innerHTML = '';
@@ -137,24 +143,24 @@ async function processPdf() {
   try {
     // Step 1: Process document for text extraction
     updateStepStatus(1, 'progress');
-    extractedText = await extractTextUsingGemini(currentFile);
+    const extractedData = await extractTextUsingGemini(currentFile);
     updateStepStatus(1, 'complete');
 
     // Step 2: Deconstruct text to identify drugs, diseases and other details
     updateStepStatus(2, 'progress');
-    const entities = await displayEntities(extractedText);
+    await displayEntities(extractedData);
     updateStepStatus(2, 'complete');
 
     // Step 3: Identify related and known adverse events
     updateStepStatus(3, 'progress');
-    const pubmedLink = await generatePubmedLinks(extractedText);
+    const pubmedLink = await generatePubmedLinks(extractedData); 
     articlesData = await fetchArticles(pubmedLink);
     updateStepStatus(3, 'complete');
     displayArticles(articlesData);
 
     // Step 4: Identify related articles which indicate causality
     updateStepStatus(4, 'progress');
-    const causalityAnalysis = await generateSummary(extractedText, articlesData);
+    const causalityAnalysis = await generateSummary(extractedData, articlesData);
     updateStepStatus(4, 'complete');
 
     // Step 5: Synthesize and generate final summary
@@ -236,7 +242,7 @@ async function extractTextUsingGemini(file) {
       "minItems": 1
     }
   },
-  "required": ["symptoms", "disease", "subjective_assessments", "drug_used"]
+  "required": ["symptoms", "disease", "subjective_assessments", "drugs_used"]
 }\n\`\`\`\n\nIMPORTANT INSTRUCTIONS:\n1. Ensure the response is valid JSON\n2. Do not use HTML entities (like &gt; &lt; &amp;) - use actual characters (>, <, &) instead\n3. For percentages, use the actual symbol (>) instead of HTML entities\n4. All text in reason fields should use regular characters, not HTML entities\n5. Extract all relevant information from the pdf document and categorize it appropriately\n6. Ensure all medical terms (disease names, drug names) are correctly spelled\n7. Provide MeSH codes where possible\n8. Make sure all JSON strings are properly escaped`
         }]
       },
@@ -581,7 +587,6 @@ function resetApp() {
   }
 
   currentFile = null;
-  extractedText = '';
   articlesData = [];
   
   fileInput.value = '';

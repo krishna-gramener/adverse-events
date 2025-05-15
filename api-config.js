@@ -4,12 +4,19 @@ let gemini_url=""
 let token=""
 
 // api-config.js
-let apiFormElement;
+let apiFormContainer;
 let mainContentElement;
+let apiFormElement;
 
 function setupAPI(apiForm, mainContent) {
+    // Store references to DOM elements
     apiFormElement = apiForm;
     mainContentElement = mainContent;
+    apiFormContainer = document.getElementById('apiForm');
+    
+    if (!apiFormElement || !mainContentElement || !apiFormContainer) {
+        throw new Error('Required DOM elements not found. Make sure all elements exist in the HTML.');
+    }
     
     // Set up event listener
     apiFormElement.addEventListener('submit', handleAPISubmit);
@@ -33,8 +40,8 @@ function checkStoredAPIs() {
   
   // Show API form
   function showAPIForm() {
-    apiForm.classList.remove('hidden');
-    mainContent.classList.add('hidden');
+    apiFormContainer.classList.remove('d-none');
+    mainContentElement.classList.add('d-none');
   }
   
   // Handle API form submission
@@ -54,8 +61,8 @@ function checkStoredAPIs() {
     localStorage.setItem('gemini_url', gemini_url);
     
     // Hide form and show main content
-    apiForm.classList.add('hidden');
-    mainContent.classList.remove('hidden');
+    apiFormContainer.classList.add('d-none');
+    mainContentElement.classList.remove('d-none');
     
     // Initialize the app
     await init();
@@ -73,11 +80,11 @@ function checkStoredAPIs() {
         token = data.token;
         
         // Show main content if we have the token
-        mainContent.classList.remove('hidden');
-        apiForm.classList.add('hidden');
+        mainContentElement.classList.remove('d-none');
+        apiFormContainer.classList.add('d-none');
     } catch (error) {
         showError("Failed to initialize: " + error.message);
     }
   }
   
-  export {openai_url, gemini_url, token, setupAPI};
+  export { gemini_url, token, setupAPI};
