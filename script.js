@@ -228,19 +228,10 @@ async function extractTextUsingGemini(file) {
       },
       "minItems": 1
     },
-    "drug_used": {
+    "drugs_used": {
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "mesh_code": {
-            "type": "string"
-          }
-        },
-        "required": ["name", "mesh_code"]
+        "type": "string"
       },
       "minItems": 1
     }
@@ -273,6 +264,7 @@ async function extractTextUsingGemini(file) {
     const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) throw new Error('No JSON block found in response');
     const value=JSON.parse(jsonMatch[1]);
+    console.log(value);
     return value;
   } catch (error) {
     throw new Error(`Gemini API error: ${error.message}`);
@@ -281,53 +273,30 @@ async function extractTextUsingGemini(file) {
 
 async function generatePubmedLinks(extractedData) {
   try {
-    const response = await fetch(openai_url, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json", 
-        "Authorization": `Bearer ${token}:adverse-events` 
-      },
-      credentials: "include",
-      body: JSON.stringify({
-        model: "gpt-4.1-nano",
-        messages: [{ 
-          role: "system", 
-          content: `You are a medical research assistant. Based on the provided data, generate a PubMed search term string that will be used in the eutils API. The search term should focus on:
-1. The specific drug used by the patient
-2. The side effects or symptoms mentioned
-3. The relationship between the drug and symptoms
+    // Construct drug terms (drug1 OR drug2)
+    const drugTerms = extractedData.drugs_used
+      .map(drug => drug.replace(/\s+/g, '+'))
+      .join('+OR+');
+    const drugQuery = `(${drugTerms})`;
 
-Format your response as a JSON object with a single 'searchTerm' property containing the search string. Example format:
-{
-  "searchTerm": "(drugName1+AND+drugName2)+AND+(diseaseName1+OR+diseaseName2)+OR+(symptom1+OR+symptom2)"
-}
+    // Construct disease terms (disease1 OR disease2)
+    const diseaseTerms = extractedData.disease
+      .map(disease => disease.name.replace(/\s+/g, '+'))
+      .join('+OR+');
+    const diseaseQuery = `(${diseaseTerms})`;
 
-Ensure terms are properly connected with AND/OR operators and use + for spaces.`
-        }, { 
-          role: "user", 
-          content: JSON.stringify(extractedData) 
-        }],
-      }),
-    });
+    // Construct symptom terms (symptom1 OR symptom2)
+    const symptomTerms = extractedData.symptoms
+      .map(symptom => symptom.replace(/\s+/g, '+'))
+      .join('+OR+');
+    const symptomQuery = `(${symptomTerms})`;
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
+    // Combine all terms: (drugs)AND(diseases)OR(symptoms)
+    const searchTerm = `${drugQuery}+AND+${diseaseQuery}+OR+${symptomQuery}`;
 
-    const result = await response.json();
-    const text = result.choices?.[0]?.message?.content;
-    
-    try {
-      // Remove escaped quotes and normalize the JSON string
-      const cleanText = text.replace(/\\n/g, '').replace(/\\"([^"]+)\\"/g, '"$1"');
-      const { searchTerm } = JSON.parse(cleanText);
-      const pubmedUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${searchTerm}&retmax=5&retmode=json`;
-      console.log('Generated PubMed URL:', pubmedUrl);
-      return pubmedUrl;
-    } catch (parseError) {
-      console.error('Failed to parse text:', text);
-      throw new Error(`Failed to parse JSON response: ${parseError.message}`);
-    }
+    const pubmedUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${searchTerm}&retmax=5&retmode=json`;
+    console.log('Generated PubMed URL:', pubmedUrl);
+    return pubmedUrl;
   } catch (error) {
     throw new Error(`Failed to generate PubMed links: ${error.message}`);
   }
@@ -483,8 +452,8 @@ function displayEntities(data) {
         if (type === 'mesh') {
           return `
             <div class="list-group-item border-0 px-0">
-              <div><i class="bi bi-dot me-2"></i>${item.name}</div>
-              <small class="text-muted ms-4">MeSH Code: ${item.mesh_code}</small>
+              <div><i class="bi bi-dot me-2"></i>${item.name || item}</div>
+              ${item.mesh_code ? `<small class="text-muted ms-4">MeSH Code: ${item.mesh_code}</small>` : ''}
             </div>`;
         }
         return `
@@ -514,7 +483,7 @@ function displayEntities(data) {
 
     const content = `
       <div class="row g-3">
-        ${createCard(parsedData.drug_used, 'Drugs Used', 'primary', 'capsule', 'mesh')}
+        ${createCard(parsedData.drugs_used, 'Drugs Used', 'primary', 'capsule', 'mesh')}
         ${createCard(parsedData.symptoms, 'Symptoms', 'danger', 'activity', 'simple')}
         ${createCard(parsedData.disease, 'Diseases', 'warning', 'clipboard2-pulse', 'mesh')}
         
