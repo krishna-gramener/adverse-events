@@ -264,7 +264,6 @@ async function extractTextUsingGemini(file) {
     const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch) throw new Error('No JSON block found in response');
     const value=JSON.parse(jsonMatch[1]);
-    console.log(value);
     return value;
   } catch (error) {
     throw new Error(`Gemini API error: ${error.message}`);
