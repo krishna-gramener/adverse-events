@@ -297,7 +297,7 @@ async function generatePubmedLinks(extractedData) {
     const symptomQuery = `(${symptomTerms})`;
 
     // Combine all terms: (drugs)AND(diseases)OR(symptoms)
-    const searchTerm = `${drugQuery}+AND+${diseaseQuery}+OR+${symptomQuery}`;
+    const searchTerm = `${drugQuery}+AND+${diseaseQuery}`;
 
     const pubmedUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${searchTerm}&retmax=5&retmode=json`;
     console.log('Generated PubMed URL:', pubmedUrl);
@@ -368,13 +368,22 @@ async function generateSummary(patientData, articlesData) {
           text: `Based on the provided data for each symptom, generate details in the following format :
 
 \`\`\`json
-[
-  {
-    "symptom_name": "string",
-    "is_adverse_event": "yes|no",
-    "reason": "string with explanation"
-  }
-]
+{
+  "type": "object",
+  "properties": {
+    "symptom_name": {
+      "type": "string"
+    },
+    "is_adverse_event": {
+      "type": "string",
+      "enum": ["yes", "no"]
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": ["symptom_name", "is_adverse_event", "reason"]
+}
 \`\`\`
 
 Provide an array of objects, one for each symptom. For each symptom:
@@ -415,7 +424,6 @@ NPI Guidelines: ${npi}
     if (!Array.isArray(result)) {
       throw new Error('Expected array of symptom analysis');
     }
-    
     return result;
   } catch (error) {
     throw new Error(`Failed to generate summary: ${error.message}`);
