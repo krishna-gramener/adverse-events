@@ -86,28 +86,49 @@
     <div id="mainContent" class="container py-4">
       <h1 class="text-center mb-4">AEvolution</h1>
 
-      <!-- Upload Section -->
+      <!-- Document Selection Section -->
       <div class="card mb-4">
         <div class="card-body">
-          <div id="upload-area" class="upload-area">
-            <i class="bi bi-file-earmark-pdf fs-1 text-secondary mb-3"></i>
-            <h5>Upload a PDF file</h5>
-            <p class="text-muted">Drag and drop here or click to select</p>
-            <input type="file" id="file-input" accept=".pdf" class="d-none" />
-            <button id="select-file-btn" class="btn btn-outline-primary mt-2">Select File</button>
-          </div>
-          <div id="file-info" class="mt-3 d-none">
-            <div class="d-flex align-items-center">
-              <i class="bi bi-file-earmark-pdf fs-4 text-primary me-2"></i>
-              <span id="filename"></span>
-              <div class="ms-auto">
-                <button id="view-pdf-btn" class="btn btn-sm btn-outline-primary me-2 d-none">
-                  <i class="bi bi-eye"></i> View PDF
-                </button>
-                <button id="remove-file-btn" class="btn btn-sm btn-outline-danger">
-                  <i class="bi bi-x"></i> Remove
-                </button>
+          <div class="row g-3">
+            <!-- Scan PDF Selection -->
+            <div class="col-md-6">
+              <div class="card h-100">
+                <div class="card-body">
+                  <h5 class="card-title"><i class="bi bi-file-earmark-pdf text-primary me-2"></i>Scan Document</h5>
+                  <div class="mt-3">
+                    <select id="scan-select" class="form-select mb-2">
+                      <option value="">Select Scan Document</option>
+                      <option value="scan.pdf">scan.pdf</option>
+                    </select>
+                    <button id="view-scan-btn" class="btn btn-sm btn-outline-primary" disabled>
+                      <i class="bi bi-eye"></i> View
+                    </button>
+                  </div>
+                </div>
               </div>
+            </div>
+            <!-- NPI PDF Selection -->
+            <div class="col-md-6">
+              <div class="card h-100">
+                <div class="card-body">
+                  <h5 class="card-title"><i class="bi bi-file-earmark-pdf text-primary me-2"></i>NPI Document</h5>
+                  <div class="mt-3">
+                    <select id="npi-select" class="form-select mb-2">
+                      <option value="">Select NPI Document</option>
+                      <option value="cosentyx.pdf">NPI.pdf</option>
+                    </select>
+                    <button id="view-npi-btn" class="btn btn-sm btn-outline-primary" disabled>
+                      <i class="bi bi-eye"></i> View
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Process Button -->
+            <div class="col-12 text-center">
+              <button id="process-btn" class="btn btn-primary" disabled>
+                <i class="bi bi-arrow-right-circle me-2"></i>Process Documents
+              </button>
             </div>
           </div>
         </div>

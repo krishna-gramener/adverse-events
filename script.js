@@ -2,12 +2,10 @@ import { gemini_url, token, setupAPI} from './api-config.js';
 import {getXmlContent, getAuthors, getJournalInfo, getPublicationDate, getKeywords} from './xml-helper.js';
 import {initializeVisualization, updateStepStatus} from './visualization.js';
 // DOM elements
-const uploadArea = document.getElementById('upload-area');
-const fileInput = document.getElementById('file-input');
-const selectFileBtn = document.getElementById('select-file-btn');
-const fileInfo = document.getElementById('file-info');
-const filename = document.getElementById('filename');
-const removeFileBtn = document.getElementById('remove-file-btn');
+const scanSelect = document.getElementById('scan-select');
+const npiSelect = document.getElementById('npi-select');
+const viewScanBtn = document.getElementById('view-scan-btn');
+const viewNpiBtn = document.getElementById('view-npi-btn');
 const processingStatus = document.getElementById('processing-status');
 const resultsContainer = document.getElementById('results-container');
 const entitiesContent = document.getElementById('entities-content');
@@ -18,21 +16,10 @@ const errorMessage = document.getElementById('error-message');
 const mainContent = document.getElementById('mainContent');
 const pdfModal = document.getElementById('pdfViewerModal');
 const pdfIframe = document.getElementById('pdf-iframe');
-const viewPdfBtn = document.getElementById('view-pdf-btn');
 const modalFilename = document.getElementById('modal-filename');
 const apiForm = document.getElementById('api-config-form');
 // Initialize Bootstrap modal
 const pdfViewerModal = new bootstrap.Modal(pdfModal);
-
-// Handle view PDF button click
-viewPdfBtn.addEventListener('click', () => {
-  if (!currentObjectUrl || !currentFile) {
-    return;
-  }
-  modalFilename.textContent = currentFile.name;
-  pdfIframe.src = currentObjectUrl;
-  pdfViewerModal.show();
-});
 
 // Clean up iframe src when modal is hidden
 pdfModal.addEventListener('hidden.bs.modal', () => {
@@ -40,101 +27,94 @@ pdfModal.addEventListener('hidden.bs.modal', () => {
 });
 
 // Global variables
-let npi = '';
+let selectedScan = '';
+let selectedNpi = '';
+let npiData = '';
+let articlesData = [];
 
-// Initialize API setup after DOM is fully loaded
+// Initialize API setup and load NPI documents after DOM is fully loaded
+// Event handlers for dropdowns
+scanSelect.addEventListener('change', (e) => {
+  selectedScan = e.target.value;
+  viewScanBtn.disabled = !selectedScan;
+  updateProcessButtonState();
+});
+
+npiSelect.addEventListener('change', (e) => {
+  selectedNpi = e.target.value;
+  viewNpiBtn.disabled = !selectedNpi;
+  updateProcessButtonState();
+});
+
+// View button handlers
+viewScanBtn.addEventListener('click', () => showPreview(selectedScan));
+viewNpiBtn.addEventListener('click', () => showPreview(selectedNpi));
+
+function updateProcessButtonState() {
+  processBtn.disabled = !selectedScan || !selectedNpi;
+}
+
+function showPreview(filename) {
+  modalFilename.textContent = filename;
+  pdfIframe.src = `./data/${filename}`;
+  pdfViewerModal.show();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     try {
-        npi = await fetch('./data/npi.docx').then((r)=>r.text());
+        // Initially disable process and view buttons
+        processBtn.disabled = true;
+        viewScanBtn.disabled = true;
+        viewNpiBtn.disabled = true;
+        // Initialize API configuration
         setupAPI(apiForm, mainContent);
     } catch (error) {
         showError(error.message);
     }
 });
-// Store the currently uploaded file
-let currentFile = null;
-let currentObjectUrl = null;
-let articlesData = [];
 
-// Handle file selection
-selectFileBtn.addEventListener('click', () => {
-  fileInput.click();
+// Handle view scan button click
+viewScanBtn.addEventListener('click', () => {
+  modalFilename.textContent = 'scan.pdf';
+  pdfIframe.src = './data/scan.pdf';
+  pdfViewerModal.show();
 });
 
-fileInput.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (file && file.type === 'application/pdf') {
-    handleFile(file);
-  } else if (file) {
-    showError('Please upload a PDF file.');
-  }
+// Handle view NPI button click
+viewNpiBtn.addEventListener('click', () => {
+  modalFilename.textContent = 'Cosentyx NPI';
+  pdfIframe.src = './data/cosentyx.pdf';
+  pdfViewerModal.show();
 });
 
-// Handle drag and drop
-uploadArea.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  uploadArea.classList.add('highlight');
-});
-
-uploadArea.addEventListener('dragleave', () => {
-  uploadArea.classList.remove('highlight');
-});
-
-uploadArea.addEventListener('drop', (e) => {
-  e.preventDefault();
-  uploadArea.classList.remove('highlight');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type === 'application/pdf') {
-    handleFile(file);
-  } else if (file) {
-    showError('Please upload a PDF file.');
-  }
-});
-
-// Remove file
-removeFileBtn.addEventListener('click', () => {
-  resetApp();
-});
-
-// Process the uploaded file
-async function handleFile(file) {
-  currentFile = file;
-  showFileInfo(file);
-  hideError();
-
-  // Create object URL for PDF and store it
-  currentObjectUrl = URL.createObjectURL(file);
-  viewPdfBtn.classList.add('d-none');
-
+// Handle process button click
+const processBtn = document.getElementById('process-btn');
+processBtn.addEventListener('click', async () => {
   try {
     await processPdf();
   } catch (error) {
-    showError(`Error processing PDF: ${error.message}`);
+    showError(`Error processing documents: ${error.message}`);
     console.error(error);
-    // Clean up object URL on error
-    if (currentObjectUrl) {
-      URL.revokeObjectURL(currentObjectUrl);
-      currentObjectUrl = null;
-    }
   }
-}
+});
 
+processBtn.disabled = false;
+
+// Process the scan document
 async function processPdf() {
-  // Reset previous results
-  articlesData = [];
-  entitiesContent.innerHTML = '';
-  articlesContent.innerHTML = '';
-  summaryContent.innerHTML = '';
-
-  // Show processing status and initialize visualization
-  processingStatus.classList.remove('d-none');
-  resultsContainer.classList.add('d-none');
-  initializeVisualization(); // Initialize D3 visualization
-
   try {
-    // Step 1: Process document for text extraction
+    if (!selectedScan || !selectedNpi) {
+      throw new Error('Please select both scan and NPI documents');
+    }
+
+    // Show processing status and initialize visualization
+    processingStatus.classList.remove('d-none');
+    resultsContainer.classList.add('d-none');
+    initializeVisualization();
+
+    // Step 1: Process scan document for text extraction
     updateStepStatus(1, 'progress');
-    const extractedData = await extractTextUsingGemini(currentFile);
+    const extractedData = await extractTextUsingGemini(`./data/${selectedScan}`);
     updateStepStatus(1, 'complete');
 
     // Step 2: Deconstruct text to identify drugs, diseases and other details
@@ -160,9 +140,8 @@ async function processPdf() {
     document.getElementById('summary-card').classList.remove('d-none');
     updateStepStatus(5, 'complete');
 
-    // Show results and enable PDF viewing
+    // Show results
     resultsContainer.classList.remove('d-none');
-    viewPdfBtn.classList.remove('d-none');
 
   } catch (error) {
     showError(`Processing failed: ${error.message}`);
@@ -170,8 +149,11 @@ async function processPdf() {
   }
 }
 
-async function getBase64FromPdf(file) {
+async function getBase64FromPdf(filePath) {
   try {
+    const response = await fetch(filePath);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -180,16 +162,16 @@ async function getBase64FromPdf(file) {
         resolve(base64String);
       };
       reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(blob);
     });
   } catch (error) {
     throw new Error(`Failed to convert PDF to base64: ${error.message}`);
   }
 }
 
-async function extractTextUsingGemini(file) {
+async function extractTextUsingGemini(filePath) {
   try {
-    const base64String = await getBase64FromPdf(file);
+    const base64String = await getBase64FromPdf(filePath);
     const requestBody = {
       system_instruction: {
         parts: [{
@@ -206,16 +188,7 @@ async function extractTextUsingGemini(file) {
     "disease": {
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "name": {
             "type": "string"
-          },
-          "mesh_code": {
-            "type": "string"
-          }
-        },
-        "required": ["name", "mesh_code"]
       },
       "minItems": 1
     },
@@ -278,7 +251,7 @@ async function generatePubmedLinks(extractedData) {
 
     // Construct disease terms (disease1 OR disease2)
     const diseaseTerms = extractedData.disease
-      .map(disease => disease.name.replace(/\s+/g, '+'))
+      .map(disease => disease.replace(/\s+/g, '+'))
       .join('+OR+');
     const diseaseQuery = `(${diseaseTerms})`;
 
@@ -376,12 +349,7 @@ async function generateSummary(patientData, articlesData) {
   },
   "required": ["symptom_name", "is_adverse_event", "reason"]
 }
-\`\`\`
-
-Provide an array of objects, one for each symptom. For each symptom:
-- symptom_name: The name of the symptom
-- is_adverse_event: Either "yes" or "no"
-- reason: Detailed explanation with references to the provided data
+\`\`\` \n \n
 `
         }]
       },
@@ -391,7 +359,7 @@ Provide an array of objects, one for each symptom. For each symptom:
           text: ` data :- 
 Patient Information: ${JSON.stringify(patientData, null, 2)}
 Research Articles: ${JSON.stringify(articlesData, null, 2)}
-NPI Guidelines: ${npi}
+NPI Guidelines: ${npiData}
 `
         }]
       }]
@@ -430,16 +398,9 @@ function displayEntities(data) {
       if (!items || !Array.isArray(items) || items.length === 0) return '';
       
       return items.map(item => {
-        if (type === 'mesh') {
-          return `
-            <div class="list-group-item border-0 px-0">
-              <div><i class="bi bi-dot me-2"></i>${item.name || item}</div>
-              ${item.mesh_code ? `<small class="text-muted ms-4">MeSH Code: ${item.mesh_code}</small>` : ''}
-            </div>`;
-        }
         return `
           <div class="list-group-item border-0 px-0">
-            <i class="bi bi-dot me-2"></i>${item}
+            <i class="bi bi-dot me-2"></i>${item.name || item}
           </div>`;
       }).join('');
     };
@@ -462,12 +423,26 @@ function displayEntities(data) {
       `;
     };
 
+    // Helper function to properly case items
+    const properCase = (str) => {
+      if (!str || typeof str !== 'string') return str;
+      return str.toString().split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+    };
+
+    // Apply proper casing to all items
+    const processedData = {
+      drugs_used: parsedData.drugs_used.map(drug => properCase(drug)),
+      symptoms: parsedData.symptoms.map(symptom => properCase(symptom)),
+      disease: parsedData.disease.map(disease => properCase(disease))
+    };
+
     const content = `
       <div class="row g-3">
-        ${createCard(parsedData.drugs_used, 'Drugs Used', 'primary', 'capsule', 'mesh')}
-        ${createCard(parsedData.symptoms, 'Symptoms', 'danger', 'activity', 'simple')}
-        ${createCard(parsedData.disease, 'Diseases', 'warning', 'clipboard2-pulse', 'mesh')}
-        
+        ${createCard(processedData.drugs_used, 'Drugs Used', 'primary', 'capsule', 'mesh')}
+        ${createCard(processedData.symptoms, 'Symptoms', 'danger', 'activity', 'simple')}
+        ${createCard(processedData.disease, 'Diseases', 'warning', 'clipboard2-pulse', 'mesh')}
       </div>
     `;
     
@@ -524,7 +499,7 @@ function displaySummary(data) {
       <tbody>
         ${data.map(item => `
           <tr>
-            <td>${item.symptom_name}</td>
+            <td>${typeof item.symptom_name === 'string' ? item.symptom_name.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ') : item.symptom_name}</td>
             <td>
               <span class="badge ${item.is_adverse_event === 'yes' ? 'bg-danger' : 'bg-success'}">
                 ${item.is_adverse_event}
@@ -540,12 +515,6 @@ function displaySummary(data) {
 summaryContent.innerHTML = tableHTML;
 }
 
-function showFileInfo(file) {
-  filename.textContent = file.name;
-  fileInfo.classList.remove('d-none');
-  uploadArea.classList.add('d-none');
-}
-
 function showError(message) {
   errorMessage.textContent = message;
   errorAlert.classList.remove('d-none');
@@ -556,19 +525,13 @@ function hideError() {
 }
 
 function resetApp() {
-  // Clean up object URL
-  if (currentObjectUrl) {
-    URL.revokeObjectURL(currentObjectUrl);
-    currentObjectUrl = null;
-  }
-
-  currentFile = null;
+  scanFile = null;
   articlesData = [];
   
-  fileInput.value = '';
-  filename.textContent = '';
-  fileInfo.classList.add('d-none');
-  uploadArea.classList.remove('d-none');
+  scanFileInput.value = '';
+  scanFilename.textContent = '';
+  scanFileInfo.classList.add('d-none');
+  scanUploadArea.classList.remove('d-none');
   processingStatus.classList.add('d-none');
   resultsContainer.classList.add('d-none');
   errorAlert.classList.add('d-none');
@@ -576,7 +539,6 @@ function resetApp() {
     pdfViewerModal.hide();
   }
   pdfIframe.src = '';
-  viewPdfBtn.classList.add('d-none');
   
   // Clear and hide all content cards
   entitiesContent.innerHTML = '';
